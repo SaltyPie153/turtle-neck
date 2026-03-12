@@ -1,1 +1,1 @@
-# Sense-Posture-System
+# AI 기반 자세 모니터링 및 불균형 경고 시스템
