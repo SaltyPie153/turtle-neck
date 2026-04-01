@@ -1,3 +1,4 @@
+// express 앱 설정 및 라우터 연결
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
