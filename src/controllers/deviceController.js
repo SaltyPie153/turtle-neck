@@ -1,6 +1,6 @@
 // 사용자 기기(FCM토큰) 관련 컨트롤러
 
-const db = require('../config/db');
+const { db } = require('../config/db');
 
 // 기기 등록 및 정보 갱신 기능을 구현한 컨트롤러
 exports.registerDevice = (req, res) => {

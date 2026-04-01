@@ -1,6 +1,6 @@
 // 알림 관련 컨트롤러
 
-const db = require('../config/db');
+const { db } = require('../config/db');
 
 
 // 알림 저장 및 조회 기능을 구현한 컨트롤러

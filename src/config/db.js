@@ -13,7 +13,10 @@ const db = new sqlite3.Database(dbPath, (err) => {
   }
 });
 
-db.serialize(() => {
+db.configure('busyTimeout', 5000);
+
+function initDatabase() {
+  db.serialize(() => {
   db.run('PRAGMA foreign_keys = ON');
 
   db.run(`
@@ -87,5 +90,10 @@ db.serialize(() => {
     )
   `);
 });
+}
 
-module.exports = db;
+
+module.exports = {
+  db,
+  initDatabase,
+};

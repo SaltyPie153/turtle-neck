@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 
+const pushRoutes = require('./routes/pushRoutes');
 const authRoutes = require('./routes/authRoutes');
 const landmarkRoutes = require('./routes/landmarkRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
@@ -14,6 +15,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, '../public')));
+app.use('/push', pushRoutes);
 
 app.get('/', (req, res) => {
   res.redirect('/login.html');

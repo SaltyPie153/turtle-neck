@@ -2,7 +2,7 @@
 
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const db = require('../config/db');
+const { db } = require('../config/db');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'change_this_secret_key';
 
