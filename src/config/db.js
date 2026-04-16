@@ -20,14 +20,17 @@ function initDatabase() {
   db.run('PRAGMA foreign_keys = ON');
 
   db.run(`
-    CREATE TABLE IF NOT EXISTS Users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT NOT NULL,
-      email TEXT NOT NULL UNIQUE,
-      password TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
+  CREATE TABLE IF NOT EXISTS Users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL,
+    nickname TEXT,
+    email TEXT NOT NULL UNIQUE,
+    password TEXT NOT NULL,
+    profile_image TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
 
   db.run(`
     CREATE TABLE IF NOT EXISTS LandMark (

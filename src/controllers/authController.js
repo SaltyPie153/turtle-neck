@@ -18,10 +18,13 @@ function generateToken(user) {
   );
 }
 
-// 회원가입, 사용자 정보 조회 기능을 구현한 컨트롤러
 exports.register = async (req, res) => {
   try {
-    const { username, email, password } = req.body;
+    const { username, email, password, nickname } = req.body;
+
+    const profileImage = req.file
+      ? `/uploads/profiles/${req.file.filename}`
+      : null;
 
     if (!username || !email || !password) {
       return res.status(400).json({
@@ -52,10 +55,12 @@ exports.register = async (req, res) => {
       const hashedPassword = await bcrypt.hash(password, 10);
 
       db.run(
-        'INSERT INTO Users (username, email, password) VALUES (?, ?, ?)',
-        [username, email, hashedPassword],
+        `INSERT INTO Users (username, email, password, nickname, profile_image)
+         VALUES (?, ?, ?, ?, ?)`,
+        [username, email, hashedPassword, nickname || null, profileImage],
         function (insertErr) {
           if (insertErr) {
+            console.error('회원가입 insert 오류:', insertErr.message);
             return res.status(500).json({
               message: '회원가입 중 오류가 발생했습니다.',
               error: insertErr.message,
@@ -66,6 +71,8 @@ exports.register = async (req, res) => {
             id: this.lastID,
             username,
             email,
+            nickname: nickname || null,
+            profile_image: profileImage,
           };
 
           const token = generateToken(user);
@@ -79,6 +86,7 @@ exports.register = async (req, res) => {
       );
     });
   } catch (error) {
+    console.error('회원가입 서버 오류:', error.message);
     return res.status(500).json({
       message: '서버 오류가 발생했습니다.',
       error: error.message,

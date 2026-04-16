@@ -10,6 +10,9 @@ const authRoutes = require('./routes/authRoutes');
 const landmarkRoutes = require('./routes/landmarkRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const deviceRoutes = require('./routes/deviceRoutes');
+const userRoutes = require('./routes/userRoutes');
+const postureLogRoutes = require('./routes/postureLogRoutes');
+const dashboardRoutes = require('./routes/dashboardRoutes');
 
 const app = express();
 
@@ -27,6 +30,9 @@ app.use('/auth', authRoutes);
 app.use('/landmark', landmarkRoutes);
 app.use('/notifications', notificationRoutes);
 app.use('/devices', deviceRoutes);
+app.use('/users', userRoutes);
+app.use('/posture/log', postureLogRoutes);
+app.use('/dashboard', dashboardRoutes);
 
 app.use((req, res) => {
   res.status(404).json({
