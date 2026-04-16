@@ -58,19 +58,24 @@ function closeDatabase() {
   });
 }
 
-async function createTestUser() {
-  const hashedPassword = await bcrypt.hash(TEST_USER_PASSWORD, 10);
+async function createTestUser({
+  username = 'tester',
+  email = 'tester@example.com',
+  nickname = 'Tester',
+  password = TEST_USER_PASSWORD,
+} = {}) {
+  const hashedPassword = await bcrypt.hash(password, 10);
   const result = await run(
     `INSERT INTO Users (username, email, password, nickname)
      VALUES (?, ?, ?, ?)`,
-    ['tester', 'tester@example.com', hashedPassword, 'Tester']
+    [username, email, hashedPassword, nickname]
   );
 
   return {
     id: result.lastID,
-    username: 'tester',
-    email: 'tester@example.com',
-    password: TEST_USER_PASSWORD,
+    username,
+    email,
+    password,
   };
 }
 
@@ -245,6 +250,36 @@ describe('Auth API', () => {
     });
 
     assert.equal(response.status, 409);
+  });
+
+  test('POST /auth/register cleans up uploaded file when duplicate email is rejected', async () => {
+    const beforeFileNames = fs
+      .readdirSync(profileUploadDir)
+      .filter((fileName) => fileName.startsWith('profile_'))
+      .sort();
+
+    const formData = new FormData();
+    formData.append('username', 'duplicate-user');
+    formData.append('email', 'tester@example.com');
+    formData.append('password', 'another-password');
+    formData.append(
+      'profile_image',
+      new Blob(['duplicate-image'], { type: 'image/png' }),
+      'duplicate.png'
+    );
+
+    const response = await fetch(`${baseUrl}/auth/register`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    assert.equal(response.status, 409);
+
+    const afterFileNames = fs
+      .readdirSync(profileUploadDir)
+      .filter((fileName) => fileName.startsWith('profile_'))
+      .sort();
+    assert.deepEqual(afterFileNames, beforeFileNames);
   });
 
   test('POST /auth/login returns a token for a valid user', async () => {
@@ -518,7 +553,10 @@ describe('Landmark API', () => {
     assert.equal(latestResponse.status, 200);
 
     const latestBody = await latestResponse.json();
+    assert.equal(latestBody.nose_source, 'face_detection_nose_tip');
     assert.equal(latestBody.nose_x, 0.53);
+    assert.equal(latestBody.pose_nose_x, 0.5);
+    assert.equal(latestBody.nose_tip_x, 0.53);
     assert.equal(latestBody.right_ear_x, 0.64);
     assert.equal(latestBody.right_shoulder_x, 0.56);
   });
@@ -602,6 +640,30 @@ describe('Push API', () => {
     const body = await response.json();
     assert.equal(body.successCount, 1);
     assert.equal(body.failureCount, 0);
+  });
+
+  test('POST /push/send rejects attempts to send to another user', async () => {
+    const otherUser = await createTestUser({
+      username: 'other-user',
+      email: 'other@example.com',
+      nickname: 'Other',
+      password: 'other-password-123',
+    });
+
+    const response = await fetch(`${baseUrl}/push/send`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({
+        user_id: otherUser.id,
+        title: 'Forbidden push',
+        body: 'Should not be delivered',
+      }),
+    });
+
+    assert.equal(response.status, 403);
   });
 });
 

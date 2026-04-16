@@ -1,10 +1,14 @@
-// 사용자 인증 관련 컨트롤러
-
 const bcrypt = require('bcrypt');
+const fs = require('fs');
 const jwt = require('jsonwebtoken');
-const { db } = require('../config/db');
+const path = require('path');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'change_this_secret_key';
+const { db } = require('../config/db');
+const { getJwtSecret } = require('../config/jwt');
+
+const JWT_SECRET = getJwtSecret();
+const PROFILE_UPLOAD_PREFIX = '/uploads/profiles/';
+const PROFILE_UPLOAD_DIR = path.join(__dirname, '../../public/uploads/profiles');
 
 function generateToken(user) {
   return jwt.sign(
@@ -18,37 +22,58 @@ function generateToken(user) {
   );
 }
 
+function safelyDeleteProfileImage(profileImagePath) {
+  if (
+    !profileImagePath ||
+    typeof profileImagePath !== 'string' ||
+    !profileImagePath.startsWith(PROFILE_UPLOAD_PREFIX)
+  ) {
+    return;
+  }
+
+  const fileName = path.basename(profileImagePath);
+  const absolutePath = path.join(PROFILE_UPLOAD_DIR, fileName);
+
+  if (fs.existsSync(absolutePath)) {
+    fs.unlinkSync(absolutePath);
+  }
+}
+
 exports.register = async (req, res) => {
   try {
     const { username, email, password, nickname } = req.body;
 
     const profileImage = req.file
-      ? `/uploads/profiles/${req.file.filename}`
+      ? `${PROFILE_UPLOAD_PREFIX}${req.file.filename}`
       : null;
 
     if (!username || !email || !password) {
+      safelyDeleteProfileImage(profileImage);
       return res.status(400).json({
-        message: 'username, email, password는 필수입니다.',
+        message: 'username, email, password are required.',
       });
     }
 
     if (password.length < 6) {
+      safelyDeleteProfileImage(profileImage);
       return res.status(400).json({
-        message: '비밀번호는 6자 이상이어야 합니다.',
+        message: 'Password must be at least 6 characters long.',
       });
     }
 
     db.get('SELECT id FROM Users WHERE email = ?', [email], async (err, row) => {
       if (err) {
+        safelyDeleteProfileImage(profileImage);
         return res.status(500).json({
-          message: '사용자 조회 중 오류가 발생했습니다.',
+          message: 'Failed to check for existing user.',
           error: err.message,
         });
       }
 
       if (row) {
+        safelyDeleteProfileImage(profileImage);
         return res.status(409).json({
-          message: '이미 사용 중인 이메일입니다.',
+          message: 'Email is already in use.',
         });
       }
 
@@ -58,11 +83,21 @@ exports.register = async (req, res) => {
         `INSERT INTO Users (username, email, password, nickname, profile_image)
          VALUES (?, ?, ?, ?, ?)`,
         [username, email, hashedPassword, nickname || null, profileImage],
-        function (insertErr) {
+        function onInsert(insertErr) {
           if (insertErr) {
-            console.error('회원가입 insert 오류:', insertErr.message);
+            safelyDeleteProfileImage(profileImage);
+
+            if (
+              insertErr.code === 'SQLITE_CONSTRAINT' ||
+              insertErr.code === 'SQLITE_CONSTRAINT_UNIQUE'
+            ) {
+              return res.status(409).json({
+                message: 'Email is already in use.',
+              });
+            }
+
             return res.status(500).json({
-              message: '회원가입 중 오류가 발생했습니다.',
+              message: 'Failed to register user.',
               error: insertErr.message,
             });
           }
@@ -78,7 +113,7 @@ exports.register = async (req, res) => {
           const token = generateToken(user);
 
           return res.status(201).json({
-            message: '회원가입 성공',
+            message: 'User registered successfully.',
             user,
             token,
           });
@@ -86,37 +121,35 @@ exports.register = async (req, res) => {
       );
     });
   } catch (error) {
-    console.error('회원가입 서버 오류:', error.message);
+    safelyDeleteProfileImage(req.file ? `${PROFILE_UPLOAD_PREFIX}${req.file.filename}` : null);
     return res.status(500).json({
-      message: '서버 오류가 발생했습니다.',
+      message: 'Server error occurred.',
       error: error.message,
     });
   }
 };
 
-
-// 로그인 및 사용자 정보 조회 기능을 구현한 컨트롤러
 exports.login = (req, res) => {
   try {
     const { email, password } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({
-        message: 'email, password는 필수입니다.',
+        message: 'email and password are required.',
       });
     }
 
     db.get('SELECT * FROM Users WHERE email = ?', [email], async (err, user) => {
       if (err) {
         return res.status(500).json({
-          message: '로그인 중 오류가 발생했습니다.',
+          message: 'Failed to login.',
           error: err.message,
         });
       }
 
       if (!user) {
         return res.status(401).json({
-          message: '이메일 또는 비밀번호가 올바르지 않습니다.',
+          message: 'Email or password is invalid.',
         });
       }
 
@@ -124,14 +157,14 @@ exports.login = (req, res) => {
 
       if (!isMatch) {
         return res.status(401).json({
-          message: '이메일 또는 비밀번호가 올바르지 않습니다.',
+          message: 'Email or password is invalid.',
         });
       }
 
       const token = generateToken(user);
 
       return res.status(200).json({
-        message: '로그인 성공',
+        message: 'Login successful.',
         user: {
           id: user.id,
           username: user.username,
@@ -142,7 +175,7 @@ exports.login = (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({
-      message: '서버 오류가 발생했습니다.',
+      message: 'Server error occurred.',
       error: error.message,
     });
   }
@@ -150,7 +183,7 @@ exports.login = (req, res) => {
 
 exports.me = (req, res) => {
   return res.status(200).json({
-    message: '인증 성공',
+    message: 'Authentication successful.',
     user: req.user,
   });
 };

@@ -2,28 +2,36 @@ const { db } = require('../config/db');
 const admin = require('../config/firebaseAdmin');
 
 exports.sendPushToUser = async (req, res) => {
-  const { user_id, title, body } = req.body;
+  const requesterUserId = Number(req.user.id);
+  const targetUserId = Number(req.body.user_id);
+  const { title, body } = req.body;
 
-  if (!user_id || !title || !body) {
+  if (!targetUserId || !title || !body) {
     return res.status(400).json({
-      message: 'user_id, title, body는 필수입니다.',
+      message: 'user_id, title, and body are required.',
+    });
+  }
+
+  if (targetUserId !== requesterUserId) {
+    return res.status(403).json({
+      message: 'You can only send push notifications to your own devices.',
     });
   }
 
   db.all(
     'SELECT fcm_token FROM UserDevices WHERE user_id = ?',
-    [user_id],
+    [targetUserId],
     async (err, rows) => {
       if (err) {
         return res.status(500).json({
-          message: 'FCM 토큰 조회 실패',
+          message: 'Failed to fetch FCM tokens.',
           error: err.message,
         });
       }
 
       if (!rows || rows.length === 0) {
         return res.status(404).json({
-          message: '등록된 기기 토큰이 없습니다.',
+          message: 'No registered device tokens were found for this user.',
         });
       }
 
@@ -39,13 +47,13 @@ exports.sendPushToUser = async (req, res) => {
         });
 
         return res.status(200).json({
-          message: '푸시 알림 전송 성공',
+          message: 'Push notification sent successfully.',
           successCount: response.successCount,
           failureCount: response.failureCount,
         });
       } catch (error) {
         return res.status(500).json({
-          message: '푸시 알림 전송 실패',
+          message: 'Failed to send push notification.',
           error: error.message,
         });
       }

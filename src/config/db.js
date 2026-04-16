@@ -80,10 +80,19 @@ async function initDatabase() {
     CREATE TABLE IF NOT EXISTS LandMark (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
+      nose_source TEXT,
       nose_x REAL,
       nose_y REAL,
       nose_z REAL,
       nose_visibility REAL,
+      pose_nose_x REAL,
+      pose_nose_y REAL,
+      pose_nose_z REAL,
+      pose_nose_visibility REAL,
+      nose_tip_x REAL,
+      nose_tip_y REAL,
+      nose_tip_z REAL,
+      nose_tip_visibility REAL,
       left_ear_x REAL,
       left_ear_y REAL,
       left_ear_z REAL,
@@ -163,8 +172,17 @@ async function initDatabase() {
      SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)`
   );
 
+  await ensureColumn('LandMark', 'nose_source', 'TEXT');
   await ensureColumn('LandMark', 'nose_z', 'REAL');
   await ensureColumn('LandMark', 'nose_visibility', 'REAL');
+  await ensureColumn('LandMark', 'pose_nose_x', 'REAL');
+  await ensureColumn('LandMark', 'pose_nose_y', 'REAL');
+  await ensureColumn('LandMark', 'pose_nose_z', 'REAL');
+  await ensureColumn('LandMark', 'pose_nose_visibility', 'REAL');
+  await ensureColumn('LandMark', 'nose_tip_x', 'REAL');
+  await ensureColumn('LandMark', 'nose_tip_y', 'REAL');
+  await ensureColumn('LandMark', 'nose_tip_z', 'REAL');
+  await ensureColumn('LandMark', 'nose_tip_visibility', 'REAL');
   await ensureColumn('LandMark', 'left_ear_z', 'REAL');
   await ensureColumn('LandMark', 'left_ear_visibility', 'REAL');
   await ensureColumn('LandMark', 'right_ear_z', 'REAL');
