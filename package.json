@@ -3,11 +3,15 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
+    "start": "node app.js",
     "test": "node --test --experimental-test-isolation=none"
   },
   "author": "",
   "license": "ISC",
-  "description": "",
+  "description": "Sense Posture System backend",
+  "engines": {
+    "node": "22.x"
+  },
   "dependencies": {
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",

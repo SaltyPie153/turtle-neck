@@ -23,6 +23,12 @@ app.use(express.static(path.join(__dirname, '../public')));
 
 app.use('/push', pushRoutes);
 
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'ok',
+  });
+});
+
 app.get('/', (req, res) => {
   res.redirect('/login.html');
 });
