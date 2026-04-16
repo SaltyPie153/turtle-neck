@@ -125,10 +125,15 @@ Sense-Posture-System/
 │   ├── app.js
 │   ├── config/
 │   │   └── db.js
+<<<<<<< HEAD
+=======
+│   │   └── firebaseAdmin.js
+>>>>>>> a6a5546daed33f59222a019fe90df1265d2894e5
 │   ├── controllers/
 │   │   ├── authController.js
 │   │   ├── deviceController.js
 │   │   ├── landmarkController.js
+<<<<<<< HEAD
 │   │   └── notificationController.js
 │   ├── middleware/
 │   │   └── authMiddleware.js
@@ -137,6 +142,20 @@ Sense-Posture-System/
 │       ├── deviceRoutes.js
 │       ├── landmarkRoutes.js
 │       └── notificationRoutes.js
+=======
+│   │   ├── notificationController.js
+│   │   └── pushController.js
+│   ├── middleware/
+│   │   └── authMiddleware.js
+│   │── routes/
+│   │   ├── authRoutes.js
+│   │   ├── deviceRoutes.js
+│   |   ├── landmarkRoutes.js
+│   |   ├── notificationRoutes.js
+│   |   └── pushRoutes.js
+│   └── utils/
+│       └── calculateLandmarkFeatures.js
+>>>>>>> a6a5546daed33f59222a019fe90df1265d2894e5
 ├── .env
 ├── .gitignore
 ├── app.js
