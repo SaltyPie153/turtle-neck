@@ -1,92 +1,200 @@
 const bcrypt = require('bcrypt');
+const fs = require('fs');
+const path = require('path');
+
 const { db } = require('../config/db');
 
-exports.updateMyProfile = async (req, res) => {
+const PROFILE_UPLOAD_PREFIX = '/uploads/profiles/';
+const PROFILE_UPLOAD_DIR = path.join(__dirname, '../../public/uploads/profiles');
+
+function safelyDeleteProfileImage(profileImagePath) {
+  if (
+    !profileImagePath ||
+    typeof profileImagePath !== 'string' ||
+    !profileImagePath.startsWith(PROFILE_UPLOAD_PREFIX)
+  ) {
+    return;
+  }
+
+  const fileName = path.basename(profileImagePath);
+  const absolutePath = path.join(PROFILE_UPLOAD_DIR, fileName);
+
+  if (fs.existsSync(absolutePath)) {
+    fs.unlinkSync(absolutePath);
+  }
+}
+
+exports.updateMyProfile = (req, res) => {
   const userId = req.user.id;
-  const { password, nickname, profile_image } = req.body;
+  const { password } = req.body;
+  const nickname =
+    req.body.nickname !== undefined ? String(req.body.nickname).trim() : undefined;
+  const uploadedProfileImage = req.file
+    ? `${PROFILE_UPLOAD_PREFIX}${req.file.filename}`
+    : undefined;
 
-  const fields = [];
-  const values = [];
+  db.get(
+    `SELECT id, profile_image
+     FROM Users
+     WHERE id = ?`,
+    [userId],
+    async (selectErr, existingUser) => {
+      if (selectErr) {
+        if (uploadedProfileImage) {
+          safelyDeleteProfileImage(uploadedProfileImage);
+        }
 
-  try {
-    if (password) {
-      if (password.length < 6) {
-        return res.status(400).json({
-          message: '비밀번호는 6자 이상이어야 합니다.',
+        return res.status(500).json({
+          message: 'Failed to fetch current user profile.',
+          error: selectErr.message,
         });
       }
 
-      const hashedPassword = await bcrypt.hash(password, 10);
-      fields.push('password = ?');
-      values.push(hashedPassword);
-    }
+      if (!existingUser) {
+        if (uploadedProfileImage) {
+          safelyDeleteProfileImage(uploadedProfileImage);
+        }
 
-    if (nickname !== undefined) {
-      fields.push('nickname = ?');
-      values.push(nickname);
-    }
+        return res.status(404).json({
+          message: 'User not found.',
+        });
+      }
 
-    if (profile_image !== undefined) {
-      fields.push('profile_image = ?');
-      values.push(profile_image);
-    }
+      const fields = [];
+      const values = [];
 
-    if (fields.length === 0) {
-      return res.status(400).json({
-        message: '수정할 정보가 없습니다.',
-      });
-    }
+      try {
+        if (password) {
+          if (password.length < 6) {
+            if (uploadedProfileImage) {
+              safelyDeleteProfileImage(uploadedProfileImage);
+            }
 
-    values.push(userId);
+            return res.status(400).json({
+              message: 'Password must be at least 6 characters long.',
+            });
+          }
 
-    db.run(
-      `UPDATE Users SET ${fields.join(', ')} WHERE id = ?`,
-      values,
-      function (err) {
-        if (err) {
-          return res.status(500).json({
-            message: '회원정보 수정 실패',
-            error: err.message,
+          const hashedPassword = await bcrypt.hash(password, 10);
+          fields.push('password = ?');
+          values.push(hashedPassword);
+        }
+
+        if (nickname !== undefined) {
+          fields.push('nickname = ?');
+          values.push(nickname || null);
+        }
+
+        if (uploadedProfileImage !== undefined) {
+          fields.push('profile_image = ?');
+          values.push(uploadedProfileImage);
+        }
+
+        if (fields.length === 0) {
+          if (uploadedProfileImage) {
+            safelyDeleteProfileImage(uploadedProfileImage);
+          }
+
+          return res.status(400).json({
+            message: 'No profile fields were provided to update.',
           });
         }
 
-        return res.status(200).json({
-          message: '회원정보 수정 성공',
+        fields.push('updated_at = CURRENT_TIMESTAMP');
+        values.push(userId);
+
+        db.run(
+          `UPDATE Users SET ${fields.join(', ')} WHERE id = ?`,
+          values,
+          function onUpdate(err) {
+            if (err) {
+              if (uploadedProfileImage) {
+                safelyDeleteProfileImage(uploadedProfileImage);
+              }
+
+              return res.status(500).json({
+                message: 'Failed to update user profile.',
+                error: err.message,
+              });
+            }
+
+            if (this.changes === 0) {
+              if (uploadedProfileImage) {
+                safelyDeleteProfileImage(uploadedProfileImage);
+              }
+
+              return res.status(404).json({
+                message: 'User not found.',
+              });
+            }
+
+            if (
+              uploadedProfileImage &&
+              existingUser.profile_image &&
+              existingUser.profile_image !== uploadedProfileImage
+            ) {
+              safelyDeleteProfileImage(existingUser.profile_image);
+            }
+
+            return db.get(
+              `SELECT id, username, email, nickname, profile_image, created_at, updated_at
+               FROM Users
+               WHERE id = ?`,
+              [userId],
+              (finalSelectErr, row) => {
+                if (finalSelectErr) {
+                  return res.status(500).json({
+                    message: 'Failed to fetch updated user profile.',
+                    error: finalSelectErr.message,
+                  });
+                }
+
+                return res.status(200).json({
+                  message: 'User profile updated successfully.',
+                  data: row,
+                });
+              }
+            );
+          }
+        );
+      } catch (error) {
+        if (uploadedProfileImage) {
+          safelyDeleteProfileImage(uploadedProfileImage);
+        }
+
+        return res.status(500).json({
+          message: 'Server error occurred while updating the profile.',
+          error: error.message,
         });
       }
-    );
-  } catch (error) {
-    return res.status(500).json({
-      message: '서버 오류가 발생했습니다.',
-      error: error.message,
-    });
-  }
+    }
+  );
 };
 
 exports.getMyProfile = (req, res) => {
   const userId = req.user.id;
 
   db.get(
-    `SELECT id, username, email, nickname, profile_image, created_at
+    `SELECT id, username, email, nickname, profile_image, created_at, updated_at
      FROM Users
      WHERE id = ?`,
     [userId],
     (err, row) => {
       if (err) {
         return res.status(500).json({
-          message: '회원정보 조회 실패',
+          message: 'Failed to fetch user profile.',
           error: err.message,
         });
       }
 
       if (!row) {
         return res.status(404).json({
-          message: '사용자를 찾을 수 없습니다.',
+          message: 'User not found.',
         });
       }
 
       return res.status(200).json({
-        message: '회원정보 조회 성공',
+        message: 'User profile fetched successfully.',
         data: row,
       });
     }

@@ -1,6 +1,6 @@
+const fs = require('fs');
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
 
 const uploadDir = path.join(__dirname, '../../public/uploads/profiles');
 
@@ -21,11 +21,13 @@ const storage = multer.diskStorage({
 
 const fileFilter = (req, file, cb) => {
   const allowedTypes = ['.jpg', '.jpeg', '.png', '.webp'];
-
   const ext = path.extname(file.originalname).toLowerCase();
 
   if (!allowedTypes.includes(ext)) {
-    return cb(new Error('jpg, jpeg, png, webp 파일만 업로드 가능합니다.'));
+    const error = new Error('Only jpg, jpeg, png, and webp files are allowed.');
+    error.status = 400;
+    cb(error);
+    return;
   }
 
   cb(null, true);

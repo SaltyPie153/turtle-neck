@@ -1,44 +1,97 @@
 const { db } = require('../config/db');
 
+const ALLOWED_STATUS = ['normal', 'warning', 'danger'];
+
+function normalizeDurationSeconds(value) {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue) || numericValue < 0) {
+    return null;
+  }
+
+  return Math.round(numericValue);
+}
+
+function normalizeRecordedAt(value) {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+
+  const parsedDate = new Date(value);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return null;
+  }
+
+  return parsedDate.toISOString();
+}
+
 exports.createPostureLog = (req, res) => {
   const userId = req.user.id;
-  const { status, duration_seconds } = req.body;
+  const { status, duration_seconds, recorded_at } = req.body;
 
-  const allowedStatus = ['normal', 'warning', 'danger'];
-
-  if (!allowedStatus.includes(status)) {
+  if (!ALLOWED_STATUS.includes(status)) {
     return res.status(400).json({
-      message: 'status는 normal, warning, danger 중 하나여야 합니다.',
+      message: 'status must be one of normal, warning, or danger.',
     });
   }
 
-  if (
-    duration_seconds === undefined ||
-    duration_seconds === null ||
-    Number.isNaN(Number(duration_seconds)) ||
-    Number(duration_seconds) < 0
-  ) {
+  const normalizedDurationSeconds = normalizeDurationSeconds(duration_seconds);
+
+  if (normalizedDurationSeconds === null) {
     return res.status(400).json({
-      message: 'duration_seconds는 0 이상의 숫자여야 합니다.',
+      message: 'duration_seconds must be a number greater than or equal to 0.',
     });
   }
 
-  db.run(
-    `INSERT INTO PostureLogs (user_id, status, duration_seconds)
-     VALUES (?, ?, ?)`,
-    [userId, status, Number(duration_seconds)],
-    function (err) {
-      if (err) {
-        return res.status(500).json({
-          message: '자세 로그 저장 실패',
-          error: err.message,
-        });
-      }
+  const normalizedRecordedAt = normalizeRecordedAt(recorded_at);
 
-      return res.status(201).json({
-        message: '자세 로그 저장 성공',
-        logId: this.lastID,
+  if (recorded_at !== undefined && normalizedRecordedAt === null) {
+    return res.status(400).json({
+      message: 'recorded_at must be a valid datetime string.',
+    });
+  }
+
+  const insertSql = normalizedRecordedAt
+    ? `INSERT INTO PostureLogs (user_id, status, duration_seconds, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)`
+    : `INSERT INTO PostureLogs (user_id, status, duration_seconds)
+       VALUES (?, ?, ?)`;
+
+  const insertValues = normalizedRecordedAt
+    ? [userId, status, normalizedDurationSeconds, normalizedRecordedAt, normalizedRecordedAt]
+    : [userId, status, normalizedDurationSeconds];
+
+  db.run(insertSql, insertValues, function onInsert(err) {
+    if (err) {
+      return res.status(500).json({
+        message: 'Failed to save posture log.',
+        error: err.message,
       });
     }
-  );
+
+    return db.get(
+      `SELECT id, user_id, status, duration_seconds, created_at, updated_at
+       FROM PostureLogs
+       WHERE id = ?`,
+      [this.lastID],
+      (selectErr, row) => {
+        if (selectErr) {
+          return res.status(500).json({
+            message: 'Posture log was saved, but failed to fetch the saved record.',
+            error: selectErr.message,
+          });
+        }
+
+        return res.status(201).json({
+          message: 'Posture log saved successfully.',
+          data: row,
+        });
+      }
+    );
+  });
 };

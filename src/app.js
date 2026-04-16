@@ -1,17 +1,18 @@
-// express 앱 설정 및 라우터 연결
+// Express app setup and route registration
 
-const express = require('express');
 const cors = require('cors');
+const express = require('express');
 const path = require('path');
 
-const pushRoutes = require('./routes/pushRoutes');
 const authRoutes = require('./routes/authRoutes');
+const dashboardRoutes = require('./routes/dashboardRoutes');
+const deviceRoutes = require('./routes/deviceRoutes');
 const landmarkRoutes = require('./routes/landmarkRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
-const deviceRoutes = require('./routes/deviceRoutes');
-const userRoutes = require('./routes/userRoutes');
 const postureLogRoutes = require('./routes/postureLogRoutes');
-const dashboardRoutes = require('./routes/dashboardRoutes');
+const postureRoutes = require('./routes/postureRoutes');
+const pushRoutes = require('./routes/pushRoutes');
+const userRoutes = require('./routes/userRoutes');
 
 const app = express();
 
@@ -19,6 +20,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, '../public')));
+
 app.use('/push', pushRoutes);
 
 app.get('/', (req, res) => {
@@ -32,10 +34,28 @@ app.use('/devices', deviceRoutes);
 app.use('/users', userRoutes);
 app.use('/posture/log', postureLogRoutes);
 app.use('/dashboard', dashboardRoutes);
+app.use('/posture', postureRoutes);
+
+app.use((err, req, res, next) => {
+  if (!err) {
+    next();
+    return;
+  }
+
+  if (err.name === 'MulterError') {
+    return res.status(400).json({
+      message: err.message,
+    });
+  }
+
+  return res.status(err.status || 500).json({
+    message: err.message || 'Server error occurred.',
+  });
+});
 
 app.use((req, res) => {
   res.status(404).json({
-    message: '요청한 경로를 찾을 수 없습니다.',
+    message: 'Requested route was not found.',
   });
 });
 
