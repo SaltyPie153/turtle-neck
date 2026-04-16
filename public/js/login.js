@@ -15,10 +15,11 @@ function showUserInfo(user) {
   userBox.style.display = 'block';
   logoutBtn.style.display = 'block';
   userBox.innerHTML = `
-    <strong>로그인된 사용자</strong><br>
+    <strong>Signed in user</strong><br>
     ID: ${user.id}<br>
-    이름: ${user.username}<br>
-    이메일: ${user.email}
+    Name: ${user.username}<br>
+    Email: ${user.email}<br><br>
+    <a href="/camera.html">Open camera monitor</a>
   `;
 }
 
@@ -27,7 +28,7 @@ async function registerWebDevice(jwtToken) {
     const fcmToken = await requestFcmToken();
 
     if (!fcmToken) {
-      console.log('FCM 토큰이 없어 기기 등록을 건너뜁니다.');
+      console.log('Skipping web device registration because no FCM token was issued.');
       return;
     }
 
@@ -46,13 +47,13 @@ async function registerWebDevice(jwtToken) {
     const data = await response.json();
 
     if (!response.ok) {
-      console.error('기기 등록 실패:', data.message);
+      console.error('Device registration failed:', data.message);
       return;
     }
 
-    console.log('기기 등록 성공');
+    console.log('Web device registered.');
   } catch (error) {
-    console.error('FCM 등록 오류:', error);
+    console.error('FCM registration error:', error);
   }
 }
 
@@ -76,7 +77,7 @@ async function loadMyInfo() {
       return;
     }
 
-    showMessage('이미 로그인되어 있습니다.', 'success');
+    showMessage('Already signed in.', 'success');
     showUserInfo(data.user);
 
     await registerWebDevice(jwtToken);
@@ -103,26 +104,26 @@ loginForm.addEventListener('submit', async (e) => {
     const data = await response.json();
 
     if (!response.ok) {
-      showMessage(data.message || '로그인에 실패했습니다.', 'error');
+      showMessage(data.message || 'Login failed.', 'error');
       return;
     }
 
     localStorage.setItem('token', data.token);
     localStorage.setItem('user', JSON.stringify(data.user));
 
-    showMessage('로그인 성공', 'success');
+    showMessage('Login successful.', 'success');
     showUserInfo(data.user);
 
     await registerWebDevice(data.token);
   } catch (error) {
-    showMessage('서버와 통신 중 오류가 발생했습니다.', 'error');
+    showMessage('A server communication error occurred.', 'error');
   }
 });
 
 logoutBtn.addEventListener('click', () => {
   localStorage.removeItem('token');
   localStorage.removeItem('user');
-  alert('로그아웃되었습니다.');
+  alert('Signed out.');
   window.location.reload();
 });
 

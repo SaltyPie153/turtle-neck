@@ -60,6 +60,30 @@ async function ensureColumn(tableName, columnName, definition, backfillSql) {
   return true;
 }
 
+async function dedupeBaselineLandmarks() {
+  await run(`
+    DELETE FROM LandMark
+    WHERE id NOT IN (
+      SELECT id
+      FROM LandMark AS current_row
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM LandMark AS newer_row
+        WHERE newer_row.user_id = current_row.user_id
+          AND (
+            COALESCE(newer_row.updated_at, newer_row.created_at) >
+              COALESCE(current_row.updated_at, current_row.created_at)
+            OR (
+              COALESCE(newer_row.updated_at, newer_row.created_at) =
+                COALESCE(current_row.updated_at, current_row.created_at)
+              AND newer_row.id > current_row.id
+            )
+          )
+      )
+    )
+  `);
+}
+
 async function initDatabase() {
   await run('PRAGMA foreign_keys = ON');
 
@@ -211,6 +235,8 @@ async function initDatabase() {
      SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)`
   );
 
+  await dedupeBaselineLandmarks();
+
   await ensureColumn(
     'UserDevices',
     'updated_at',
@@ -229,6 +255,11 @@ async function initDatabase() {
     `UPDATE PostureLogs
      SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)`
   );
+
+  await run(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_landmark_user_unique
+    ON LandMark (user_id)
+  `);
 
   await run(`
     CREATE INDEX IF NOT EXISTS idx_landmark_user_created_at

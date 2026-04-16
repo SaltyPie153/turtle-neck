@@ -1,5 +1,4 @@
-const { db } = require('../config/db');
-const admin = require('../config/firebaseAdmin');
+const { sendPushNotificationToUser } = require('../services/pushService');
 
 exports.sendPushToUser = async (req, res) => {
   const requesterUserId = Number(req.user.id);
@@ -18,45 +17,28 @@ exports.sendPushToUser = async (req, res) => {
     });
   }
 
-  db.all(
-    'SELECT fcm_token FROM UserDevices WHERE user_id = ?',
-    [targetUserId],
-    async (err, rows) => {
-      if (err) {
-        return res.status(500).json({
-          message: 'Failed to fetch FCM tokens.',
-          error: err.message,
-        });
-      }
+  try {
+    const result = await sendPushNotificationToUser(targetUserId, { title, body });
 
-      if (!rows || rows.length === 0) {
-        return res.status(404).json({
-          message: 'No registered device tokens were found for this user.',
-        });
-      }
-
-      const tokens = rows.map((row) => row.fcm_token);
-
-      try {
-        const response = await admin.messaging().sendEachForMulticast({
-          tokens,
-          notification: {
-            title,
-            body,
-          },
-        });
-
-        return res.status(200).json({
-          message: 'Push notification sent successfully.',
-          successCount: response.successCount,
-          failureCount: response.failureCount,
-        });
-      } catch (error) {
-        return res.status(500).json({
-          message: 'Failed to send push notification.',
-          error: error.message,
-        });
-      }
+    if (!result.delivered && result.reason === 'no_devices') {
+      return res.status(404).json({
+        message: 'No registered device tokens were found for this user.',
+      });
     }
-  );
+
+    return res.status(200).json({
+      message: 'Push notification sent successfully.',
+      successCount: result.successCount,
+      failureCount: result.failureCount,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message:
+        error.message &&
+        error.message.includes('Firebase service account is required')
+          ? 'Push is not configured. Set FIREBASE_SERVICE_ACCOUNT_JSON or add serviceAccountKey.json.'
+          : 'Failed to send push notification.',
+      error: error.message,
+    });
+  }
 };

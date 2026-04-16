@@ -55,15 +55,44 @@ function getServiceAccount() {
     return fromFile;
   }
 
-  throw new Error(
-    'Firebase service account is required. Set FIREBASE_SERVICE_ACCOUNT_JSON or provide serviceAccountKey.json.'
-  );
+  return null;
 }
 
-if (!admin.apps.length) {
+function ensureFirebaseApp() {
+  if (admin.apps.length) {
+    return true;
+  }
+
+  const serviceAccount = getServiceAccount();
+
+  if (!serviceAccount) {
+    return false;
+  }
+
   admin.initializeApp({
-    credential: admin.credential.cert(getServiceAccount()),
+    credential: admin.credential.cert(serviceAccount),
   });
+
+  return true;
 }
 
-module.exports = admin;
+const fallbackMessaging = {
+  async sendEachForMulticast() {
+    throw new Error(
+      'Firebase service account is required. Set FIREBASE_SERVICE_ACCOUNT_JSON or provide serviceAccountKey.json.'
+    );
+  },
+};
+
+module.exports = {
+  get apps() {
+    return admin.apps;
+  },
+  messaging() {
+    if (ensureFirebaseApp()) {
+      return admin.messaging();
+    }
+
+    return fallbackMessaging;
+  },
+};

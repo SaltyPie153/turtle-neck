@@ -1,7 +1,7 @@
 const { db } = require('../config/db');
 const calculateLandmarkFeatures = require('../utils/calculateLandmarkFeatures');
 
-const LANDMARK_INSERT_COLUMNS = [
+const LANDMARK_COLUMNS = [
   'user_id',
   'nose_source',
   'nose_x',
@@ -46,20 +46,34 @@ const LANDMARK_INSERT_COLUMNS = [
   'avg_visibility',
 ];
 
-exports.createLandmark = (req, res) => {
-  const userId = req.user.id;
+function run(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.run(sql, params, function onRun(err) {
+      if (err) {
+        reject(err);
+        return;
+      }
 
-  let features;
-
-  try {
-    features = calculateLandmarkFeatures(req.body);
-  } catch (error) {
-    return res.status(400).json({
-      message: error.message,
+      resolve(this);
     });
-  }
+  });
+}
 
-  const record = {
+function get(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.get(sql, params, (err, row) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+
+      resolve(row);
+    });
+  });
+}
+
+function buildLandmarkRecord(userId, features) {
+  return {
     user_id: userId,
     nose_source: features.nose_source,
     nose_x: features.nose_x,
@@ -103,28 +117,54 @@ exports.createLandmark = (req, res) => {
     min_visibility: features.min_visibility,
     avg_visibility: features.avg_visibility,
   };
+}
+
+exports.createLandmark = async (req, res) => {
+  const userId = req.user.id;
+
+  let features;
+
+  try {
+    features = calculateLandmarkFeatures(req.body);
+  } catch (error) {
+    return res.status(400).json({
+      message: error.message,
+    });
+  }
+
+  const record = buildLandmarkRecord(userId, features);
+  const values = LANDMARK_COLUMNS.map((column) => record[column]);
+  const updateAssignments = LANDMARK_COLUMNS.filter((column) => column !== 'user_id').map(
+    (column) => `${column} = excluded.${column}`
+  );
 
   const sql = `
-    INSERT INTO LandMark (${LANDMARK_INSERT_COLUMNS.join(', ')})
-    VALUES (${LANDMARK_INSERT_COLUMNS.map(() => '?').join(', ')})
+    INSERT INTO LandMark (${LANDMARK_COLUMNS.join(', ')}, created_at, updated_at)
+    VALUES (${LANDMARK_COLUMNS.map(() => '?').join(', ')}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    ON CONFLICT(user_id) DO UPDATE SET
+      ${updateAssignments.join(', ')},
+      updated_at = CURRENT_TIMESTAMP
   `;
 
-  const values = LANDMARK_INSERT_COLUMNS.map((column) => record[column]);
-
-  db.run(sql, values, function onInsert(err) {
-    if (err) {
-      return res.status(500).json({
-        message: 'Failed to save landmark data.',
-        error: err.message,
-      });
-    }
+  try {
+    await run(sql, values);
+    const savedRow = await get(
+      `SELECT * FROM LandMark
+       WHERE user_id = ?`,
+      [userId]
+    );
 
     return res.status(201).json({
-      message: 'Landmark data saved successfully.',
-      landmarkId: this.lastID,
+      message: 'Baseline landmark data saved successfully.',
+      landmarkId: savedRow.id,
       data: features,
     });
-  });
+  } catch (err) {
+    return res.status(500).json({
+      message: 'Failed to save landmark data.',
+      error: err.message,
+    });
+  }
 };
 
 exports.getLatestLandmark = (req, res) => {
@@ -132,9 +172,7 @@ exports.getLatestLandmark = (req, res) => {
 
   db.get(
     `SELECT * FROM LandMark
-     WHERE user_id = ?
-     ORDER BY created_at DESC
-     LIMIT 1`,
+     WHERE user_id = ?`,
     [userId],
     (err, row) => {
       if (err) {
@@ -146,7 +184,7 @@ exports.getLatestLandmark = (req, res) => {
 
       if (!row) {
         return res.status(404).json({
-          message: 'No saved landmark data found.',
+          message: 'No saved baseline landmark data found.',
         });
       }
 

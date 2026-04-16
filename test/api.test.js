@@ -3,12 +3,15 @@ const assert = require('node:assert/strict');
 const bcrypt = require('bcrypt');
 const fs = require('node:fs');
 const http = require('node:http');
-const os = require('node:os');
 const path = require('node:path');
 
 process.env.JWT_SECRET = 'test-secret';
 
-const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aix-api-test-'));
+const tempRootDir = path.join(__dirname, '.tmp');
+if (!fs.existsSync(tempRootDir)) {
+  fs.mkdirSync(tempRootDir, { recursive: true });
+}
+const tempDir = fs.mkdtempSync(path.join(tempRootDir, 'aix-api-test-'));
 process.env.DATABASE_PATH = path.join(tempDir, 'test.sqlite');
 const profileUploadDir = path.join(__dirname, '../public/uploads/profiles');
 const TEST_USER_PASSWORD = 'password-123';
@@ -41,6 +44,19 @@ function get(sql, params = []) {
       }
 
       resolve(row);
+    });
+  });
+}
+
+function all(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.all(sql, params, (err, rows) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+
+      resolve(rows);
     });
   });
 }
@@ -188,6 +204,7 @@ describe('Posture log API', () => {
     assert.equal(body.data.status, 'warning');
     assert.equal(body.data.duration_seconds, 12);
     assert.ok(body.data.created_at);
+    assert.equal(body.alert.triggered, false);
   });
 
   test('POST /posture/log rejects invalid status', async () => {
@@ -204,6 +221,64 @@ describe('Posture log API', () => {
     });
 
     assert.equal(response.status, 400);
+  });
+
+  test('POST /posture/log creates an alert notification when duration exceeds the threshold', async () => {
+    const registerResponse = await fetch(`${baseUrl}/devices/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({
+        device_type: 'web',
+        fcm_token: 'alert-token-123',
+      }),
+    });
+
+    assert.equal(registerResponse.status, 201);
+
+    messagingService.sendEachForMulticast = async ({ tokens, notification }) => {
+      assert.deepEqual(tokens, ['alert-token-123']);
+      assert.equal(notification.title, 'Posture Alert');
+      assert.match(notification.body, /Danger posture detected/);
+
+      return {
+        successCount: 1,
+        failureCount: 0,
+      };
+    };
+
+    const response = await fetch(`${baseUrl}/posture/log`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({
+        status: 'danger',
+        duration_seconds: 12,
+        recorded_at: '2026-04-16T12:30:00Z',
+      }),
+    });
+
+    assert.equal(response.status, 201);
+
+    const body = await response.json();
+    assert.equal(body.alert.triggered, true);
+    assert.equal(body.alert.push.delivered, true);
+    assert.equal(body.alert.push.successCount, 1);
+
+    const notifications = await all(
+      `SELECT status, message
+       FROM Notifications
+       WHERE user_id = ?`,
+      [currentUser.id]
+    );
+
+    assert.equal(notifications.length, 1);
+    assert.equal(notifications[0].status, 'danger');
+    assert.match(notifications[0].message, /Danger posture detected/);
   });
 });
 
@@ -559,6 +634,65 @@ describe('Landmark API', () => {
     assert.equal(latestBody.nose_tip_x, 0.53);
     assert.equal(latestBody.right_ear_x, 0.64);
     assert.equal(latestBody.right_shoulder_x, 0.56);
+  });
+
+  test('POST /landmark keeps a single baseline row per user', async () => {
+    const firstResponse = await fetch(`${baseUrl}/landmark`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authToken}`,
+      },
+      body: JSON.stringify(
+        createLandmarkPayload({
+          referenceSide: 'right',
+          rightEar: { x: 0.56, y: 0.22, z: -0.01, visibility: 0.99 },
+        })
+      ),
+    });
+
+    assert.equal(firstResponse.status, 201);
+
+    const firstBody = await firstResponse.json();
+
+    const secondResponse = await fetch(`${baseUrl}/landmark`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authToken}`,
+      },
+      body: JSON.stringify(
+        createLandmarkPayload({
+          referenceSide: 'right',
+          rightEar: { x: 0.72, y: 0.3, z: -0.05, visibility: 0.99 },
+        })
+      ),
+    });
+
+    assert.equal(secondResponse.status, 201);
+
+    const secondBody = await secondResponse.json();
+    assert.equal(secondBody.landmarkId, firstBody.landmarkId);
+
+    const countRow = await get(
+      `SELECT COUNT(*) AS count
+       FROM LandMark
+       WHERE user_id = ?`,
+      [currentUser.id]
+    );
+
+    assert.equal(countRow.count, 1);
+
+    const latestResponse = await fetch(`${baseUrl}/landmark/latest`, {
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+      },
+    });
+
+    assert.equal(latestResponse.status, 200);
+
+    const latestBody = await latestResponse.json();
+    assert.equal(latestBody.right_ear_x, 0.72);
   });
 });
 

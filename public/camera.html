@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sense Posture Camera</title>
+  <link rel="stylesheet" href="/css/camera.css" />
+</head>
+<body>
+  <main class="page">
+    <section class="panel hero">
+      <div class="hero-copy">
+        <p class="eyebrow">Sense Posture</p>
+        <h1>Camera Monitor</h1>
+        <p class="description">
+          Open the webcam in the browser and use this page as the base for
+          posture status integration.
+        </p>
+      </div>
+
+      <div class="actions">
+        <button id="startCameraBtn" type="button">Start Camera</button>
+        <button id="stopCameraBtn" type="button" class="secondary" disabled>
+          Stop Camera
+        </button>
+        <a class="link-button" href="/login.html">Back To Login</a>
+      </div>
+    </section>
+
+    <section class="layout">
+      <div class="panel video-panel">
+        <div class="video-shell">
+          <video id="cameraPreview" autoplay playsinline muted></video>
+          <div id="videoPlaceholder" class="video-placeholder">
+            Camera preview will appear here after permission is granted.
+          </div>
+        </div>
+      </div>
+
+      <aside class="panel status-panel">
+        <h2>Session Info</h2>
+
+        <dl class="status-list">
+          <div>
+            <dt>Camera State</dt>
+            <dd id="cameraState">Idle</dd>
+          </div>
+          <div>
+            <dt>Resolution</dt>
+            <dd id="cameraResolution">-</dd>
+          </div>
+          <div>
+            <dt>Preview Time</dt>
+            <dd id="previewTime">-</dd>
+          </div>
+        </dl>
+
+        <div id="cameraMessage" class="message info">
+          Sign in and start the camera to begin the monitoring flow.
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script type="module" src="/js/camera.js"></script>
+</body>
+</html>
