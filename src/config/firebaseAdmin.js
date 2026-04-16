@@ -42,6 +42,12 @@ function readServiceAccountFromFile() {
   return parsed;
 }
 
+function isFirebaseConfigured() {
+  return Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_JSON) || fs.existsSync(
+    path.join(__dirname, '../../serviceAccountKey.json')
+  );
+}
+
 function getServiceAccount() {
   const fromEnv = parseServiceAccountFromEnv();
 
@@ -60,10 +66,19 @@ function getServiceAccount() {
   );
 }
 
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert(getServiceAccount()),
-  });
+function ensureInitialized() {
+  if (!admin.apps.length) {
+    admin.initializeApp({
+      credential: admin.credential.cert(getServiceAccount()),
+    });
+  }
+
+  return admin;
 }
 
-module.exports = admin;
+module.exports = {
+  messaging() {
+    return ensureInitialized().messaging();
+  },
+  isFirebaseConfigured,
+};

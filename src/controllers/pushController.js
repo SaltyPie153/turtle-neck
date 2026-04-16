@@ -35,6 +35,12 @@ exports.sendPushToUser = async (req, res) => {
         });
       }
 
+      if (!admin.isFirebaseConfigured()) {
+        return res.status(503).json({
+          message: 'Push notifications are not configured on this server.',
+        });
+      }
+
       const tokens = rows.map((row) => row.fcm_token);
 
       try {

@@ -17,7 +17,6 @@ const jwt = require('jsonwebtoken');
 const app = require('../src/app');
 const admin = require('../src/config/firebaseAdmin');
 const { db, initDatabase } = require('../src/config/db');
-const messagingService = admin.messaging();
 
 function run(sql, params = []) {
   return new Promise((resolve, reject) => {
@@ -116,7 +115,8 @@ let baseUrl;
 let authToken;
 let currentUser;
 let uploadedTestFiles = [];
-const originalSendEachForMulticast = messagingService.sendEachForMulticast;
+const originalIsFirebaseConfigured = admin.isFirebaseConfigured;
+const originalMessaging = admin.messaging;
 
 before(async () => {
   await initDatabase();
@@ -147,7 +147,8 @@ afterEach(() => {
     }
   }
 
-  messagingService.sendEachForMulticast = originalSendEachForMulticast;
+  admin.isFirebaseConfigured = originalIsFirebaseConfigured;
+  admin.messaging = originalMessaging;
 });
 
 after(async () => {
@@ -611,16 +612,21 @@ describe('Push API', () => {
 
     assert.equal(registerResponse.status, 201);
 
-    messagingService.sendEachForMulticast = async ({ tokens, notification }) => {
-      assert.deepEqual(tokens, ['push-token-123']);
-      assert.equal(notification.title, 'Test push');
-      assert.equal(notification.body, 'Body text');
+    const messagingService = {
+      sendEachForMulticast: async ({ tokens, notification }) => {
+        assert.deepEqual(tokens, ['push-token-123']);
+        assert.equal(notification.title, 'Test push');
+        assert.equal(notification.body, 'Body text');
 
-      return {
-        successCount: 1,
-        failureCount: 0,
-      };
+        return {
+          successCount: 1,
+          failureCount: 0,
+        };
+      },
     };
+
+    admin.isFirebaseConfigured = () => true;
+    admin.messaging = () => messagingService;
 
     const response = await fetch(`${baseUrl}/push/send`, {
       method: 'POST',
@@ -640,6 +646,39 @@ describe('Push API', () => {
     const body = await response.json();
     assert.equal(body.successCount, 1);
     assert.equal(body.failureCount, 0);
+  });
+
+  test('POST /push/send returns 503 when the user has tokens but Firebase is not configured', async () => {
+    const registerResponse = await fetch(`${baseUrl}/devices/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({
+        device_type: 'web',
+        fcm_token: 'push-token-no-config',
+      }),
+    });
+
+    assert.equal(registerResponse.status, 201);
+
+    admin.isFirebaseConfigured = () => false;
+
+    const response = await fetch(`${baseUrl}/push/send`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({
+        user_id: currentUser.id,
+        title: 'Test push',
+        body: 'Body text',
+      }),
+    });
+
+    assert.equal(response.status, 503);
   });
 
   test('POST /push/send rejects attempts to send to another user', async () => {
