@@ -4,7 +4,7 @@ const { sendPushNotificationToUser } = require('../services/pushService');
 const ALLOWED_STATUS = ['normal', 'warning', 'danger'];
 const DEFAULT_ALERT_DURATION_SECONDS = {
   warning: 30,
-  danger: 10,
+  danger: 5,
 };
 const ALERT_TITLES = {
   warning: 'Posture Warning',

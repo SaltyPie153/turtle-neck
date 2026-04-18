@@ -19,7 +19,8 @@ function showUserInfo(user) {
     ID: ${user.id}<br>
     Name: ${user.username}<br>
     Email: ${user.email}<br><br>
-    <a href="/camera.html">Open camera monitor</a>
+    <a href="/camera.html">Open camera monitor</a><br>
+    <a href="/weekly.html">Open weekly dashboard</a>
   `;
 }
 

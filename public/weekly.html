@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Weekly Dashboard</title>
+  <link rel="stylesheet" href="/css/weekly.css" />
+</head>
+<body>
+  <main class="dashboard-page">
+    <header class="topbar">
+      <div class="brand-block">
+        <div class="brand">Neck<span>On</span></div>
+        <div class="top-line"></div>
+      </div>
+
+      <aside class="profile-card">
+        <img id="profileImage" class="avatar" src="" alt="Profile" />
+        <div class="profile-copy">
+          <div class="profile-row">
+            <strong id="profileName">사용자</strong>
+            <button id="logoutBtn" class="logout-chip" type="button">로그아웃</button>
+          </div>
+          <p id="riskLevel" class="risk-text">위험수준 계산 중</p>
+          <a class="profile-link" href="/camera.html">카메라 보기</a>
+        </div>
+      </aside>
+    </header>
+
+    <nav class="tabbar">
+      <a href="/camera.html">카메라</a>
+      <a href="/weekly.html" class="active">주간분석</a>
+      <a href="/login.html">로그인</a>
+    </nav>
+
+    <section class="report-head">
+      <h1>주간 리포트</h1>
+      <p>
+        일일 분석 시간 중 바른 자세로 판정된 누적 시간을 요일별로 나타낸 수치입니다.
+      </p>
+    </section>
+
+    <section class="content-grid">
+      <article class="chart-card">
+        <div class="chart-shell">
+          <div id="chartGrid" class="chart-grid"></div>
+          <div class="chart-inner">
+            <div id="bars" class="bars"></div>
+            <div id="xLabels" class="x-labels"></div>
+          </div>
+        </div>
+        <div id="chartMessage" class="chart-message">차트 데이터를 불러오는 중입니다.</div>
+      </article>
+
+      <aside class="summary-card">
+        <h2>이번 주 요약</h2>
+        <dl class="summary-list">
+          <div>
+            <dt>총 분석 시간</dt>
+            <dd id="summaryTotal">-</dd>
+          </div>
+          <div>
+            <dt>바른 자세 비율</dt>
+            <dd id="summaryRate">-</dd>
+          </div>
+          <div>
+            <dt>경고 누적 시간</dt>
+            <dd id="summaryWarning">-</dd>
+          </div>
+          <div>
+            <dt>위험 누적 시간</dt>
+            <dd id="summaryDanger">-</dd>
+          </div>
+          <div>
+            <dt>위험 발생 횟수</dt>
+            <dd id="summaryDangerCount">-</dd>
+          </div>
+          <div>
+            <dt>최고 사용일</dt>
+            <dd id="summaryPeak">-</dd>
+          </div>
+        </dl>
+      </aside>
+    </section>
+  </main>
+
+  <script type="module" src="/js/weekly.js"></script>
+</body>
+</html>

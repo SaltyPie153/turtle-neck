@@ -1,11 +1,30 @@
 const { after, afterEach, before, beforeEach, describe, test } = require('node:test');
 const assert = require('node:assert/strict');
 const bcrypt = require('bcrypt');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 
 process.env.JWT_SECRET = 'test-secret';
+
+const { privateKey } = crypto.generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+});
+
+process.env.FIREBASE_SERVICE_ACCOUNT_JSON = JSON.stringify({
+  type: 'service_account',
+  project_id: 'sense-posture-test',
+  private_key_id: 'test-private-key-id',
+  private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }),
+  client_email: 'firebase-adminsdk-test@sense-posture-test.iam.gserviceaccount.com',
+  client_id: '123456789012345678901',
+  auth_uri: 'https://accounts.google.com/o/oauth2/auth',
+  token_uri: 'https://oauth2.googleapis.com/token',
+  auth_provider_x509_cert_url: 'https://www.googleapis.com/oauth2/v1/certs',
+  client_x509_cert_url:
+    'https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-test%40sense-posture-test.iam.gserviceaccount.com',
+});
 
 const tempRootDir = path.join(__dirname, '.tmp');
 if (!fs.existsSync(tempRootDir)) {
@@ -127,6 +146,13 @@ function createLandmarkPayload({
   };
 }
 
+function isoAtDaysOffset(daysOffset, hours, minutes = 0, seconds = 0) {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() + daysOffset);
+  date.setUTCHours(hours, minutes, seconds, 0);
+  return date.toISOString();
+}
+
 let server;
 let baseUrl;
 let authToken;
@@ -146,6 +172,7 @@ before(async () => {
 
 beforeEach(async () => {
   await run('DELETE FROM PostureLogs');
+  await run('DELETE FROM PostureHeartbeatState');
   await run('DELETE FROM UserDevices');
   await run('DELETE FROM Notifications');
   await run('DELETE FROM LandMark');
@@ -804,9 +831,9 @@ describe('Push API', () => {
 describe('Dashboard API', () => {
   test('GET /dashboard/today returns aggregated data', async () => {
     const requests = [
-      { status: 'normal', duration_seconds: 600, recorded_at: '2026-04-16T09:00:00Z' },
-      { status: 'warning', duration_seconds: 120, recorded_at: '2026-04-16T09:20:00Z' },
-      { status: 'danger', duration_seconds: 180, recorded_at: '2026-04-16T09:30:00Z' },
+      { status: 'normal', duration_seconds: 600 },
+      { status: 'warning', duration_seconds: 120 },
+      { status: 'danger', duration_seconds: 180 },
     ];
 
     for (const payload of requests) {
@@ -842,9 +869,9 @@ describe('Dashboard API', () => {
 
   test('GET /dashboard/weekly returns 7 chart items and summary', async () => {
     const requests = [
-      { status: 'normal', duration_seconds: 300, recorded_at: '2026-04-14T08:00:00Z' },
-      { status: 'danger', duration_seconds: 120, recorded_at: '2026-04-15T08:00:00Z' },
-      { status: 'warning', duration_seconds: 180, recorded_at: '2026-04-16T08:00:00Z' },
+      { status: 'normal', duration_seconds: 300, recorded_at: isoAtDaysOffset(-2, 8, 0) },
+      { status: 'danger', duration_seconds: 120, recorded_at: isoAtDaysOffset(-1, 8, 0) },
+      { status: 'warning', duration_seconds: 180, recorded_at: isoAtDaysOffset(0, 8, 0) },
     ];
 
     for (const payload of requests) {
@@ -934,5 +961,178 @@ describe('Posture analyze API', () => {
     });
 
     assert.equal(response.status, 404);
+  });
+});
+
+describe('Posture heartbeat API', () => {
+  test('POST /posture/heartbeat starts tracking for a new status', async () => {
+    const response = await fetch(`${baseUrl}/posture/heartbeat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({
+        status: 'good',
+      }),
+    });
+
+    assert.equal(response.status, 200);
+
+    const body = await response.json();
+    assert.equal(body.data.status, 'good');
+    assert.equal(body.data.current_duration_seconds, 0);
+    assert.equal(body.data.alert.triggered, false);
+
+    const state = await get(
+      `SELECT current_status, alert_sent
+       FROM PostureHeartbeatState
+       WHERE user_id = ?`,
+      [currentUser.id]
+    );
+
+    assert.equal(state.current_status, 'good');
+    assert.equal(state.alert_sent, 0);
+  });
+
+  test('POST /posture/heartbeat logs the previous segment when status changes', async () => {
+    const firstResponse = await fetch(`${baseUrl}/posture/heartbeat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({
+        status: 'good',
+      }),
+    });
+
+    assert.equal(firstResponse.status, 200);
+
+    const twelveSecondsAgo = new Date(Date.now() - 12_000).toISOString();
+
+    await run(
+      `UPDATE PostureHeartbeatState
+       SET started_at = ?, last_seen_at = ?, updated_at = ?
+       WHERE user_id = ?`,
+      [twelveSecondsAgo, twelveSecondsAgo, twelveSecondsAgo, currentUser.id]
+    );
+
+    const response = await fetch(`${baseUrl}/posture/heartbeat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({
+        status: 'caution',
+      }),
+    });
+
+    assert.equal(response.status, 200);
+
+    const body = await response.json();
+    assert.equal(body.data.status, 'caution');
+    assert.ok(body.data.previous_segment);
+    assert.equal(body.data.previous_segment.status, 'normal');
+    assert.ok(body.data.previous_segment.duration_seconds >= 12);
+
+    const logs = await all(
+      `SELECT status, duration_seconds
+       FROM PostureLogs
+       WHERE user_id = ?`,
+      [currentUser.id]
+    );
+
+    assert.equal(logs.length, 1);
+    assert.equal(logs[0].status, 'normal');
+    assert.ok(logs[0].duration_seconds >= 12);
+  });
+
+  test('POST /posture/heartbeat triggers a single alert when bad lasts 5 seconds', async () => {
+    const registerResponse = await fetch(`${baseUrl}/devices/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({
+        device_type: 'web',
+        fcm_token: 'heartbeat-alert-token',
+      }),
+    });
+
+    assert.equal(registerResponse.status, 201);
+
+    messagingService.sendEachForMulticast = async ({ tokens, notification }) => {
+      assert.deepEqual(tokens, ['heartbeat-alert-token']);
+      assert.equal(notification.title, 'Posture Alert');
+      assert.match(notification.body, /Bad posture detected for 5 seconds/);
+
+      return {
+        successCount: 1,
+        failureCount: 0,
+      };
+    };
+
+    const startResponse = await fetch(`${baseUrl}/posture/heartbeat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({
+        status: 'bad',
+      }),
+    });
+
+    assert.equal(startResponse.status, 200);
+
+    const fiveSecondsAgo = new Date(Date.now() - 5_000).toISOString();
+
+    await run(
+      `UPDATE PostureHeartbeatState
+       SET started_at = ?, last_seen_at = ?, updated_at = ?
+       WHERE user_id = ?`,
+      [fiveSecondsAgo, fiveSecondsAgo, fiveSecondsAgo, currentUser.id]
+    );
+
+    const response = await fetch(`${baseUrl}/posture/heartbeat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({
+        status: 'bad',
+      }),
+    });
+
+    assert.equal(response.status, 200);
+
+    const body = await response.json();
+    assert.ok(body.data.current_duration_seconds >= 5);
+    assert.equal(body.data.alert.triggered, true);
+    assert.equal(body.data.alert.push.delivered, true);
+
+    const notifications = await all(
+      `SELECT status, message
+       FROM Notifications
+       WHERE user_id = ?`,
+      [currentUser.id]
+    );
+
+    assert.equal(notifications.length, 1);
+    assert.equal(notifications[0].status, 'danger');
+    assert.match(notifications[0].message, /Bad posture detected/);
+
+    const heartbeatState = await get(
+      `SELECT alert_sent
+       FROM PostureHeartbeatState
+       WHERE user_id = ?`,
+      [currentUser.id]
+    );
+
+    assert.equal(heartbeatState.alert_sent, 1);
   });
 });

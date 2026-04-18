@@ -1,8 +1,41 @@
 const { db } = require('../config/db');
 const calculateLandmarkFeatures = require('../utils/calculateLandmarkFeatures');
+const { sendPushNotificationToUser } = require('../services/pushService');
 
 const WARNING_HEAD_ANGLE_DEGREES = 55;
 const DANGER_HEAD_ANGLE_DEGREES = 50;
+const HEARTBEAT_STATUS_TO_LOG_STATUS = {
+  good: 'normal',
+  caution: 'warning',
+  bad: 'danger',
+};
+const BAD_ALERT_TITLE = 'Posture Alert';
+
+function run(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.run(sql, params, function onRun(err) {
+      if (err) {
+        reject(err);
+        return;
+      }
+
+      resolve(this);
+    });
+  });
+}
+
+function get(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.get(sql, params, (err, row) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+
+      resolve(row);
+    });
+  });
+}
 
 function normalizeHeadAngle(angle) {
   const numericAngle = Number(angle);
@@ -36,6 +69,92 @@ function classifyPostureByAngle(angle) {
   }
 
   return 'normal';
+}
+
+function isValidHeartbeatStatus(status) {
+  return status === 'good' || status === 'caution' || status === 'bad';
+}
+
+function getBadAlertThresholdSeconds() {
+  const fromEnv = Number(process.env.BAD_ALERT_MIN_DURATION_SECONDS);
+
+  if (Number.isFinite(fromEnv) && fromEnv >= 0) {
+    return Math.round(fromEnv);
+  }
+
+  return 5;
+}
+
+function getElapsedSeconds(startedAt, endedAt) {
+  const startedAtMs = new Date(startedAt).getTime();
+  const endedAtMs = new Date(endedAt).getTime();
+
+  if (Number.isNaN(startedAtMs) || Number.isNaN(endedAtMs)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.floor((endedAtMs - startedAtMs) / 1000));
+}
+
+async function createNotification(userId, status, message) {
+  const result = await run(
+    'INSERT INTO Notifications (user_id, status, message) VALUES (?, ?, ?)',
+    [userId, status, message]
+  );
+
+  return result.lastID;
+}
+
+async function savePostureSegment(userId, rawStatus, startedAt, endedAt) {
+  const mappedStatus = HEARTBEAT_STATUS_TO_LOG_STATUS[rawStatus];
+  const durationSeconds = getElapsedSeconds(startedAt, endedAt);
+
+  if (!mappedStatus || durationSeconds <= 0) {
+    return null;
+  }
+
+  const result = await run(
+    `INSERT INTO PostureLogs (user_id, status, duration_seconds, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?)`,
+    [userId, mappedStatus, durationSeconds, endedAt, endedAt]
+  );
+
+  return get(
+    `SELECT id, user_id, status, duration_seconds, created_at, updated_at
+     FROM PostureLogs
+     WHERE id = ?`,
+    [result.lastID]
+  );
+}
+
+async function triggerBadAlert(userId, durationSeconds) {
+  const message = `Bad posture detected for ${durationSeconds} seconds. Please correct your posture now.`;
+  const notificationId = await createNotification(userId, 'danger', message);
+
+  try {
+    const push = await sendPushNotificationToUser(userId, {
+      title: BAD_ALERT_TITLE,
+      body: message,
+    });
+
+    return {
+      triggered: true,
+      notification_id: notificationId,
+      threshold_seconds: getBadAlertThresholdSeconds(),
+      push,
+    };
+  } catch (error) {
+    return {
+      triggered: true,
+      notification_id: notificationId,
+      threshold_seconds: getBadAlertThresholdSeconds(),
+      push: {
+        delivered: false,
+        reason: 'push_error',
+        error: error.message,
+      },
+    };
+  }
 }
 
 exports.analyzePosture = (req, res) => {
@@ -115,4 +234,115 @@ exports.analyzePosture = (req, res) => {
       });
     }
   );
+};
+
+exports.processHeartbeat = async (req, res) => {
+  const userId = req.user.id;
+  const { status } = req.body;
+
+  if (!isValidHeartbeatStatus(status)) {
+    return res.status(400).json({
+      message: 'status must be one of good, caution, or bad.',
+    });
+  }
+
+  const now = new Date().toISOString();
+
+  try {
+    const currentState = await get(
+      `SELECT id, user_id, current_status, started_at, last_seen_at, alert_sent
+       FROM PostureHeartbeatState
+       WHERE user_id = ?`,
+      [userId]
+    );
+
+    if (!currentState) {
+      await run(
+        `INSERT INTO PostureHeartbeatState
+         (user_id, current_status, started_at, last_seen_at, alert_sent, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        [userId, status, now, now]
+      );
+
+      return res.status(200).json({
+        message: 'Heartbeat state started.',
+        data: {
+          status,
+          previous_segment: null,
+          current_duration_seconds: 0,
+          alert: {
+            triggered: false,
+            threshold_seconds: getBadAlertThresholdSeconds(),
+          },
+        },
+      });
+    }
+
+    if (currentState.current_status === status) {
+      const currentDurationSeconds = getElapsedSeconds(currentState.started_at, now);
+      let alert = {
+        triggered: false,
+        threshold_seconds: getBadAlertThresholdSeconds(),
+      };
+      let alertSent = currentState.alert_sent;
+
+      if (
+        status === 'bad' &&
+        !currentState.alert_sent &&
+        currentDurationSeconds >= getBadAlertThresholdSeconds()
+      ) {
+        alert = await triggerBadAlert(userId, currentDurationSeconds);
+        alertSent = 1;
+      }
+
+      await run(
+        `UPDATE PostureHeartbeatState
+         SET last_seen_at = ?, alert_sent = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE user_id = ?`,
+        [now, alertSent, userId]
+      );
+
+      return res.status(200).json({
+        message: 'Heartbeat processed.',
+        data: {
+          status,
+          previous_segment: null,
+          current_duration_seconds: currentDurationSeconds,
+          alert,
+        },
+      });
+    }
+
+    const previousSegment = await savePostureSegment(
+      userId,
+      currentState.current_status,
+      currentState.started_at,
+      now
+    );
+
+    await run(
+      `UPDATE PostureHeartbeatState
+       SET current_status = ?, started_at = ?, last_seen_at = ?, alert_sent = 0, updated_at = CURRENT_TIMESTAMP
+       WHERE user_id = ?`,
+      [status, now, now, userId]
+    );
+
+    return res.status(200).json({
+      message: 'Heartbeat processed and previous segment logged.',
+      data: {
+        status,
+        previous_segment: previousSegment,
+        current_duration_seconds: 0,
+        alert: {
+          triggered: false,
+          threshold_seconds: getBadAlertThresholdSeconds(),
+        },
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: 'Failed to process posture heartbeat.',
+      error: error.message,
+    });
+  }
 };

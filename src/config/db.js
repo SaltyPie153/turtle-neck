@@ -186,6 +186,20 @@ async function initDatabase() {
     )
   `);
 
+  await run(`
+    CREATE TABLE IF NOT EXISTS PostureHeartbeatState (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL UNIQUE,
+      current_status TEXT NOT NULL CHECK (current_status IN ('good', 'caution', 'bad')),
+      started_at DATETIME NOT NULL,
+      last_seen_at DATETIME NOT NULL,
+      alert_sent INTEGER NOT NULL DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
+    )
+  `);
+
   await ensureColumn('Users', 'nickname', 'TEXT');
   await ensureColumn('Users', 'profile_image', 'TEXT');
   await ensureColumn(
@@ -256,6 +270,19 @@ async function initDatabase() {
      SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)`
   );
 
+  await ensureColumn('PostureHeartbeatState', 'alert_sent', 'INTEGER', `
+    UPDATE PostureHeartbeatState
+    SET alert_sent = COALESCE(alert_sent, 0)
+  `);
+  await ensureColumn('PostureHeartbeatState', 'created_at', 'DATETIME', `
+    UPDATE PostureHeartbeatState
+    SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP)
+  `);
+  await ensureColumn('PostureHeartbeatState', 'updated_at', 'DATETIME', `
+    UPDATE PostureHeartbeatState
+    SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
+  `);
+
   await run(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_landmark_user_unique
     ON LandMark (user_id)
@@ -269,6 +296,11 @@ async function initDatabase() {
   await run(`
     CREATE INDEX IF NOT EXISTS idx_posture_logs_user_created_at
     ON PostureLogs (user_id, created_at DESC)
+  `);
+
+  await run(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_posture_heartbeat_user_unique
+    ON PostureHeartbeatState (user_id)
   `);
 }
 
