@@ -1,74 +1,94 @@
 # AI / CV Handoff
 
-## What To Read First
+## Read First
 
 - [API_LIST.md](./API_LIST.md)
-- [src/utils/calculateLandmarkFeatures.js](./src/utils/calculateLandmarkFeatures.js)
-- [src/controllers/postureController.js](./src/controllers/postureController.js)
+- [README.md](./README.md)
 
-## Main APIs For AI / CV Team
+## Current Integration Contract
+
+CV is expected to send posture state heartbeat.
+
+Primary API:
+
+- `POST /posture/heartbeat`
+
+Current state values:
+
+- `good`
+- `caution`
+- `bad`
+
+Backend responsibilities:
+
+- track how long the current state lasts
+- write previous segments to `PostureLogs` when the state changes
+- map values internally:
+  - `good -> normal`
+  - `caution -> warning`
+  - `bad -> danger`
+- send notification and push once when `bad` lasts at least `5` seconds
+
+This means CV does not need to calculate:
+
+- `duration_seconds`
+- alert threshold timing
+- dashboard aggregates
+
+## Required API For CV
+
+### `POST /posture/heartbeat`
+
+- Auth: required
+- Content-Type: `application/json`
+
+Request:
+
+```json
+{
+  "status": "bad"
+}
+```
+
+Allowed values:
+
+- `good`
+- `caution`
+- `bad`
+
+Recommended send timing:
+
+- send immediately when state changes
+- while state remains the same, keep sending heartbeat periodically
+- `1` second interval is a reasonable default
+
+## Expected Backend Behavior
+
+Example:
+
+1. CV sends `good`
+2. CV later sends `caution`
+3. backend saves previous `good` segment into `PostureLogs`
+4. CV keeps sending `bad`
+5. once `bad` lasts `5` seconds, backend sends alert once
+6. when status changes away from `bad`, backend saves the `bad` segment into `PostureLogs`
+
+## Optional Landmark APIs
+
+These APIs still exist, but they are no longer the main CV contract for live posture session flow:
 
 - `POST /landmark`
 - `POST /posture/analyze`
 
-## Coordinate Rules
+Use them only when needed for:
 
-- input coordinates are treated as `normalized`
-- `x`, `y` are relative image coordinates, not pixel coordinates
-- `z` is treated as relative depth, not absolute distance
-- raw landmark fields supported:
-  - `x`
-  - `y`
-  - `z`
-  - `visibility`
+- saving a baseline landmark set
+- debugging posture feature calculations
+- validating raw landmark parsing on the backend
 
-## Required Landmarks
+## Optional Landmark Payload Shape
 
-- `nose`
-- `left_ear`
-- `right_ear`
-- `left_shoulder`
-- `right_shoulder`
-
-## Optional Landmarks
-
-- `nose_tip`
-- `mouth_left`
-- `mouth_right`
-
-## Nose Priority Rule
-
-Backend behavior:
-
-- if `nose_tip` exists, backend uses `nose_tip`
-- if `nose_tip` is missing, backend falls back to pose `nose`
-
-This is already implemented in backend logic.
-
-## Side Selection Rule
-
-You may send:
-
-```json
-{
-  "reference_side": "left"
-}
-```
-
-or
-
-```json
-{
-  "reference_side": "right"
-}
-```
-
-If not provided:
-
-- backend selects the side with better landmark visibility
-- selection is based on ear + shoulder visibility
-
-## Standard Payload
+If you need to send raw landmark coordinates for baseline or debug analysis, use:
 
 ```json
 {
@@ -79,98 +99,56 @@ If not provided:
     "left_ear": { "x": 0.46, "y": 0.22, "z": -0.01, "visibility": 0.31 },
     "right_ear": { "x": 0.64, "y": 0.26, "z": -0.04, "visibility": 0.96 },
     "left_shoulder": { "x": 0.44, "y": 0.41, "z": 0.01, "visibility": 0.35 },
-    "right_shoulder": { "x": 0.56, "y": 0.41, "z": 0.02, "visibility": 0.97 },
-    "mouth_left": { "x": 0.48, "y": 0.24, "z": -0.01, "visibility": 0.90 },
-    "mouth_right": { "x": 0.52, "y": 0.24, "z": -0.01, "visibility": 0.90 }
+    "right_shoulder": { "x": 0.56, "y": 0.41, "z": 0.02, "visibility": 0.97 }
   }
 }
 ```
 
-## What Backend Calculates
+Required landmarks for raw analysis:
 
-Backend computes:
+- `nose`
+- `left_ear`
+- `right_ear`
+- `left_shoulder`
+- `right_shoulder`
 
-- `forward_distance`
-- `nose_shoulder_distance`
-- `head_angle`
-- `shoulder_width`
-- `min_visibility`
-- `avg_visibility`
+Optional landmarks:
 
-It also stores:
+- `nose_tip`
+- `mouth_left`
+- `mouth_right`
 
-- raw landmark values
-- selected side values
-- derived feature values
+## What CV No Longer Needs To Send
 
-## Posture Classification Rule
+In the current contract, CV does not need to send:
 
-Current backend posture thresholds:
+- `duration_seconds`
+- `recorded_at`
+- `normal / warning / danger`
 
-- `head_angle <= 55`: `warning`
-- `head_angle <= 50`: `danger`
+Backend handles:
 
-Interpretation used by backend:
+- duration tracking
+- internal status mapping
+- alert timing
+- dashboard log generation
 
-- more upright posture is closer to `90`
-- more forward-head posture drops angle toward `0`
+## CV Checklist
 
-## Baseline Flow
+- status values match exactly:
+  - `good`
+  - `caution`
+  - `bad`
+- heartbeat keeps coming while the same state continues
+- heartbeat interval is stable enough for duration tracking
+- protected requests include Bearer token
 
-### Save baseline
-
-- send stable baseline posture to `POST /landmark`
-
-### Analyze current frame
-
-- send live frame landmarks to `POST /posture/analyze`
-
-Backend will:
-
-- compute current features
-- compare against saved baseline
-- return status and angle assessment
-
-## Important Response Fields
-
-From `POST /landmark`:
-
-- `data.reference_side`
-- `data.nose_source`
-- `data.coordinate_space`
-- `data.head_angle`
-
-From `POST /posture/analyze`:
-
-- `data.status`
-- `data.angle_assessment.current_head_angle`
-- `data.angle_assessment.baseline_head_angle`
-- `data.diff.head_angle_diff`
-
-## AI / CV Team Checklist
-
-- confirm outgoing payload uses normalized coordinates
-- include `visibility`
-- include `nose_tip` when available
-- include `reference_side` when side is known
-- ensure required landmarks are always present
-- verify current model output names match backend expected keys
-
-## If Integration Fails
+## If Integration Breaks
 
 Check in order:
 
-1. are required landmarks present
-2. are values nested under `landmarks`
-3. are `x` and `y` numeric
-4. is `reference_side` valid when sent
-5. is `nose_tip` sent under the exact key `nose_tip`
-
-## Recommended Shared Validation
-
-Before merging:
-
-- send one known upright sample
-- send one borderline warning sample
-- send one clearly dangerous sample
-- verify backend returns expected `head_angle` and `status`
+1. token included or not
+2. request path is `/posture/heartbeat`
+3. `status` value is one of `good | caution | bad`
+4. heartbeat is actually being sent repeatedly for sustained states
+5. backend is running with valid Firebase credentials if alert push is expected

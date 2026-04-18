@@ -6,18 +6,26 @@
 - Auth: JWT Bearer token
 - Protected routes: send `Authorization: Bearer <token>`
 
+Example header:
+
+```http
+Authorization: Bearer <jwt>
+```
+
 ## Auth
 
 ### `POST /auth/register`
 
 - Auth: not required
 - Content-Type: `multipart/form-data`
-- Fields:
-  - `username` required
-  - `email` required
-  - `password` required
-  - `nickname` optional
-  - `profile_image` optional image file
+
+Fields:
+
+- `username` required
+- `email` required
+- `password` required
+- `nickname` optional
+- `profile_image` optional image file
 
 Example:
 
@@ -26,11 +34,11 @@ POST /auth/register
 Content-Type: multipart/form-data
 ```
 
-Response:
+Example response:
 
 ```json
 {
-  "message": "회원가입 성공",
+  "message": "User registered successfully.",
   "user": {
     "id": 1,
     "username": "tester",
@@ -56,12 +64,40 @@ Request:
 }
 ```
 
+Example response:
+
+```json
+{
+  "message": "Login successful.",
+  "token": "<jwt>",
+  "user": {
+    "id": 1,
+    "username": "tester",
+    "email": "tester@example.com",
+    "nickname": "Tester",
+    "profile_image": "/uploads/profiles/profile_123.png"
+  }
+}
+```
+
 ### `GET /auth/me`
 
 - Auth: required
-- Returns token-decoded user info
+- Returns token-authenticated user info
 
-## User
+Example response:
+
+```json
+{
+  "message": "Authenticated user fetched successfully.",
+  "user": {
+    "id": 1,
+    "email": "tester@example.com"
+  }
+}
+```
+
+## Users
 
 ### `GET /users/me`
 
@@ -72,14 +108,16 @@ Request:
 
 - Auth: required
 - Content-Type:
-  - `application/json` for nickname/password only
+  - `application/json` when updating nickname or password only
   - `multipart/form-data` when uploading `profile_image`
-- Fields:
-  - `nickname` optional
-  - `password` optional
-  - `profile_image` optional image file
 
-Response:
+Fields:
+
+- `nickname` optional
+- `password` optional
+- `profile_image` optional image file
+
+Example response:
 
 ```json
 {
@@ -102,9 +140,8 @@ Response:
 
 - Auth: required
 - Content-Type: `application/json`
-- Purpose: save baseline landmark/posture data
+- Purpose: save or replace the user's baseline landmark and derived posture features
 - Coordinate space: normalized
-- Raw landmark values: `x`, `y`, `z`, `visibility`
 
 Standard request:
 
@@ -117,9 +154,7 @@ Standard request:
     "left_ear": { "x": 0.46, "y": 0.22, "z": -0.01, "visibility": 0.45 },
     "right_ear": { "x": 0.64, "y": 0.26, "z": -0.04, "visibility": 0.96 },
     "left_shoulder": { "x": 0.44, "y": 0.41, "z": 0.01, "visibility": 0.42 },
-    "right_shoulder": { "x": 0.56, "y": 0.41, "z": 0.02, "visibility": 0.97 },
-    "mouth_left": { "x": 0.48, "y": 0.24, "z": -0.01, "visibility": 0.9 },
-    "mouth_right": { "x": 0.52, "y": 0.24, "z": -0.01, "visibility": 0.9 }
+    "right_shoulder": { "x": 0.56, "y": 0.41, "z": 0.02, "visibility": 0.97 }
   }
 }
 ```
@@ -127,14 +162,14 @@ Standard request:
 Notes:
 
 - `nose_tip` is used first when present
-- If `nose_tip` is missing, backend falls back to pose `nose`
+- if `nose_tip` is missing, backend falls back to pose `nose`
 - `reference_side` can be `left` or `right`
-- If no side hint is given, backend chooses the more reliable side by visibility
+- if no side hint is given, backend may choose the more reliable side by visibility
 
 ### `GET /landmark/latest`
 
 - Auth: required
-- Returns latest saved landmark row for the user
+- Returns latest saved baseline landmark row for the user
 
 ## Posture Analyze
 
@@ -147,10 +182,10 @@ Notes:
 
 Current rules:
 
-- `55` degrees or below: `warning`
-- `50` degrees or below: `danger`
+- `head_angle <= 55`: `warning`
+- `head_angle <= 50`: `danger`
 
-Response shape:
+Example response:
 
 ```json
 {
@@ -182,13 +217,59 @@ Response shape:
 }
 ```
 
+## Posture Heartbeat
+
+### `POST /posture/heartbeat`
+
+- Auth: required
+- Content-Type: `application/json`
+- Purpose: accept CV posture state only and let backend calculate duration
+
+Request:
+
+```json
+{
+  "status": "bad"
+}
+```
+
+Allowed values:
+
+- `good`
+- `caution`
+- `bad`
+
+Backend behavior:
+
+- tracks current state per user in `PostureHeartbeatState`
+- when the status changes, saves the previous segment to `PostureLogs`
+- maps values internally:
+  - `good -> normal`
+  - `caution -> warning`
+  - `bad -> danger`
+- sends a notification and push once when `bad` lasts at least `5` seconds
+
+Example response:
+
+```json
+{
+  "message": "Heartbeat processed successfully.",
+  "data": {
+    "status": "bad",
+    "started_at": "2026-04-19T10:00:00.000Z",
+    "last_seen_at": "2026-04-19T10:00:03.000Z",
+    "alert_sent": false
+  }
+}
+```
+
 ## Posture Log
 
 ### `POST /posture/log`
 
 - Auth: required
 - Content-Type: `application/json`
-- Purpose: save analyzed posture usage blocks
+- Purpose: manually save analyzed posture usage blocks
 
 Request:
 
@@ -211,7 +292,7 @@ Fields:
 ### `GET /dashboard/today`
 
 - Auth: required
-- Returns today summary
+- Returns today summary aggregated from `PostureLogs`
 
 Response:
 
@@ -233,7 +314,7 @@ Response:
 ### `GET /dashboard/weekly`
 
 - Auth: required
-- Returns 7-day chart data for graphs
+- Returns 7-day chart data aggregated from `PostureLogs`
 
 Response:
 
@@ -292,7 +373,7 @@ Request:
 ### `GET /notifications`
 
 - Auth: required
-- Returns notification list for current user
+- Returns current user's notification list
 
 ## Devices
 
@@ -353,11 +434,11 @@ Request:
 }
 ```
 
-Response:
+Example response:
 
 ```json
 {
-  "message": "푸시 알림 전송 성공",
+  "message": "Push notification sent successfully.",
   "successCount": 1,
   "failureCount": 0
 }
@@ -368,17 +449,18 @@ Response:
 - `POST /auth/register`
 - `POST /auth/login`
 - `GET /auth/me`
+- `GET /users/me`
+- `PATCH /users/me`
 - `POST /landmark`
 - `GET /landmark/latest`
+- `POST /posture/analyze`
+- `POST /posture/heartbeat`
+- `POST /posture/log`
+- `GET /dashboard/today`
+- `GET /dashboard/weekly`
 - `POST /notifications`
 - `GET /notifications`
 - `POST /devices/register`
 - `GET /devices`
 - `DELETE /devices`
 - `POST /push/send`
-- `GET /users/me`
-- `PATCH /users/me`
-- `POST /posture/log`
-- `GET /dashboard/today`
-- `GET /dashboard/weekly`
-- `POST /posture/analyze`

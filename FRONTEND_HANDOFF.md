@@ -1,12 +1,32 @@
 # Frontend Handoff
 
-## What To Read First
+## Read First
 
 - [API_LIST.md](./API_LIST.md)
+- [README.md](./README.md)
+
+## Frontend Scope
+
+Frontend is expected to:
+
+- authenticate users
+- load and update profile data
+- register web FCM token
+- load dashboard data
+- render notifications
+- display posture-related UI from backend data
+
+Frontend is not expected to:
+
+- calculate posture duration
+- classify `good / caution / bad`
+- send continuous posture heartbeats
+
+Those responsibilities are now owned by CV and backend.
 
 ## Main APIs For Frontend
 
-### Auth
+### Authentication
 
 - `POST /auth/register`
 - `POST /auth/login`
@@ -22,66 +42,92 @@
 - `GET /dashboard/today`
 - `GET /dashboard/weekly`
 
-### Posture / Logging
-
-- `POST /posture/log`
-- `POST /posture/analyze`
-- `GET /landmark/latest`
-
-### Notifications / Push
+### Notifications / Devices
 
 - `GET /notifications`
 - `POST /devices/register`
+- `GET /devices`
+- `DELETE /devices`
 
-## Frontend Flow
+### Optional / Admin-Test Endpoints
+
+- `POST /push/send`
+- `GET /landmark/latest`
+
+## Auth Flow
 
 ### 1. Login
 
-- Call `POST /auth/login`
-- Save returned JWT token
-- Send token on protected routes with:
+- call `POST /auth/login`
+- save returned JWT token
+- send token on protected routes with:
 
 ```http
 Authorization: Bearer <token>
 ```
 
-### 2. My Page / Profile
+### 2. Session Check
 
-- Use `GET /users/me` to load profile
-- Use `PATCH /users/me` to update:
-  - nickname
-  - password
-  - profile image
+- call `GET /auth/me` to verify token validity
+
+## Profile Flow
+
+### `GET /users/me`
+
+Use this to load:
+
+- username
+- email
+- nickname
+- profile_image
+
+### `PATCH /users/me`
+
+Use this to update:
+
+- nickname
+- password
+- profile image
 
 If uploading image:
 
-- send `multipart/form-data`
+- use `multipart/form-data`
 - field name must be `profile_image`
 
-### 3. Dashboard
+## Dashboard Flow
 
-#### Today
+### Today Dashboard
 
-- Use `GET /dashboard/today`
-- Useful fields:
-  - `total_usage_minutes`
-  - `normal_seconds`
-  - `warning_seconds`
-  - `danger_seconds`
-  - `danger_count`
-  - `good_posture_rate`
+Use `GET /dashboard/today`
 
-#### Weekly
+Important fields:
 
-- Use `GET /dashboard/weekly`
-- For graph, use `data.chart`
-- Each item includes:
-  - `date`
-  - `day_label`
-  - `total_usage_minutes`
-  - `normal_seconds`
-  - `warning_seconds`
-  - `danger_seconds`
+- `data.total_usage_minutes`
+- `data.normal_seconds`
+- `data.warning_seconds`
+- `data.danger_seconds`
+- `data.danger_count`
+- `data.good_posture_rate`
+
+### Weekly Dashboard
+
+Use `GET /dashboard/weekly`
+
+Important fields:
+
+- `data.summary`
+- `data.chart`
+- `data.peak_usage_day`
+
+Useful `chart` fields:
+
+- `date`
+- `day_label`
+- `total_usage_minutes`
+- `normal_seconds`
+- `warning_seconds`
+- `danger_seconds`
+- `good_posture_rate`
 
 Recommended graph usage:
 
@@ -91,69 +137,74 @@ Recommended graph usage:
   - `warning_seconds`
   - `danger_seconds`
 
-### 4. Posture Session Flow
+## Notifications / Push Flow
 
-- Frontend gets webcam stream with browser `getUserMedia`
-- Frontend or AI/CV module extracts landmarks
-- Send current landmarks to `POST /posture/analyze`
-- Use returned `status` for current posture UI
-- Save posture block to `POST /posture/log`
+### Register web FCM token
 
-### 5. Push Notifications
+Use `POST /devices/register`
 
-- Register web FCM token with `POST /devices/register`
-- `device_type` for web must be `web`
+Request:
+
+```json
+{
+  "device_type": "web",
+  "fcm_token": "token-123"
+}
+```
+
+For web, `device_type` must be `web`.
+
+### Load notification list
+
+Use `GET /notifications`
+
+## Frontend Does Not Need These For Main Flow
+
+These APIs exist, but frontend does not need to drive them in the current contract:
+
+- `POST /posture/heartbeat`
+- `POST /posture/log`
+- `POST /posture/analyze`
+
+Reason:
+
+- CV sends posture state heartbeat
+- backend calculates duration and stores logs
+- dashboard already reads aggregated values from `PostureLogs`
 
 ## Request Notes
 
 ### JSON routes
 
-Use `Content-Type: application/json`
+Use:
+
+```http
+Content-Type: application/json
+```
 
 ### File upload routes
 
-Use `multipart/form-data`
+Use:
 
-## Important Response Fields
+```http
+Content-Type: multipart/form-data
+```
 
-### From `POST /posture/analyze`
+## Frontend Checklist
 
-- `data.status`
-- `data.angle_assessment.current_head_angle`
-- `data.thresholds.warning_head_angle_max`
-- `data.thresholds.danger_head_angle_max`
+- token is saved after login
+- protected routes include Bearer token
+- profile image upload uses `profile_image`
+- weekly chart handles 7 items
+- empty dashboard state is handled when `PostureLogs` is empty
+- notification list handles empty state
 
-### From `GET /dashboard/weekly`
-
-- `data.summary`
-- `data.chart`
-- `data.peak_usage_day`
-
-## Things Frontend Does Not Need To Implement
-
-- Webcam hardware connection API on backend
-- Landmark feature extraction math
-- Posture threshold logic
-
-Those are already handled by:
-
-- browser webcam APIs
-- backend landmark calculation
-- backend posture analysis logic
-
-## If Something Breaks
+## If Integration Breaks
 
 Check in order:
 
 1. token included or not
-2. request body shape matches `API_LIST.md`
+2. request path matches `API_LIST.md`
 3. `multipart/form-data` vs `application/json`
-4. required field names are correct
-
-## Recommended Frontend Test Targets
-
-- login success
-- dashboard loads with token
-- profile update works with image
-- weekly chart renders 7 items
-- analyze response changes UI state
+4. field names are correct
+5. dashboard data is actually present in `PostureLogs`
